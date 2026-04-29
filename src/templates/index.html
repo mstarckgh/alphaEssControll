@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AlphaESS · Monitor</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Syne+Mono&family=Syne:wght@400;600;800&display=swap');
+
+:root {
+  --bg:       #080c10;
+  --surface:  #0d1318;
+  --surface2: #121920;
+  --border:   #1c2830;
+  --accent:   #00d4ff;
+  --green:    #00e87a;
+  --red:      #ff3d5a;
+  --orange:   #ff8c00;
+  --yellow:   #ffe24a;
+  --purple:   #b06cff;
+  --text:     #c5d5e0;
+  --muted:    #3d5566;
+  --glow:     rgba(0,212,255,0.12);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Syne', sans-serif;
+  font-weight: 400;
+  min-height: 100vh;
+}
+
+/* Scanline overlay */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.03) 2px,
+    rgba(0,0,0,0.03) 4px
+  );
+  pointer-events: none;
+  z-index: 999;
+}
+
+/* Grid background */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 48px 48px;
+  opacity: 0.35;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Header ── */
+header {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.2rem 2rem;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(0,212,255,0.05) 0%, transparent 100%);
+}
+
+.logo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.logo-title {
+  font-family: 'Syne Mono', monospace;
+  font-size: 1.1rem;
+  color: var(--accent);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.logo-sub {
+  font-family: 'Syne Mono', monospace;
+  font-size: 0.6rem;
+  color: var(--muted);
+  letter-spacing: 0.25em;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.live {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: 'Syne Mono', monospace;
+  font-size: 0.65rem;
+  color: var(--green);
+  letter-spacing: 0.15em;
+}
+
+.live-dot {
+  width: 6px; height: 6px;
+  background: var(--green);
+  border-radius: 50%;
+  box-shadow: 0 0 10px var(--green);
+  animation: blink 2s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%,100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+#clock {
+  font-family: 'Syne Mono', monospace;
+  font-size: 0.7rem;
+  color: var(--muted);
+  letter-spacing: 0.1em;
+}
+
+/* ── Range Tabs ── */
+.tabs {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.75rem 2rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.tab {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-family: 'Syne Mono', monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  padding: 0.3rem 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.tab:hover { border-color: var(--accent); color: var(--accent); }
+.tab.active {
+  background: rgba(0,212,255,0.1);
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 12px rgba(0,212,255,0.15);
+}
+
+/* ── KPI Row ── */
+.kpi-grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.kpi {
+  background: var(--surface);
+  padding: 1.2rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  transition: background 0.2s;
+  cursor: default;
+}
+
+.kpi:hover { background: var(--surface2); }
+
+.kpi-label {
+  font-family: 'Syne Mono', monospace;
+  font-size: 0.55rem;
+  color: var(--muted);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.kpi-value {
+  font-size: 1.6rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.kpi-unit {
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--muted);
+  margin-left: 0.15em;
+}
+
+.kpi-sub {
+  font-family: 'Syne Mono', monospace;
+  font-size: 0.58rem;
+  color: var(--muted);
+  margin-top: 0.1rem;
+}
+
+.c-accent  { color: var(--accent); }
+.c-green   { color: var(--green); }
+.c-red     { color: var(--red); }
+.c-orange  { color: var(--orange); }
+.c-yellow  { color: var(--yellow); }
+.c-purple  { color: var(--purple); }
+
+/* ── Charts ── */
+.charts {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+}
+
+.chart-card {
+  background: var(--surface);
+  padding: 1.2rem 1.5rem 1rem;
+}
+
+.chart-card.wide {
+  grid-column: span 2;
+}
+
+.chart-card.full {
+  grid-column: span 3;
+}
+
+.chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.8rem;
+}
+
+.chart-title {
+  font-family: 'Syne Mono', monospace;
+  font-size: 0.6rem;
+  color: var(--muted);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dot {
+  display: inline-block;
+  width: 7px; height: 7px;
+  border-radius: 2px;
+}
+
+.chart-wrap { position: relative; height: 160px; }
+.chart-card.wide .chart-wrap { height: 180px; }
+.chart-card.full .chart-wrap { height: 150px; }
+
+/* ── Battery detail strip ── */
+.bat-detail {
+  position: relative;
+  z-index: 1;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 1px;
+  background-color: var(--border);
+}
+
+.bat-cell {
+  background: var(--surface2);
+  padding: 0.7rem 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.bat-cell-label {
+  font-family: 'Syne Mono', monospace;
+  font-size: 0.5rem;
+  color: var(--muted);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.bat-cell-value {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+/* ── PV Strings ── */
+.pv-strings {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.pv-string {
+  background: var(--surface2);
+  padding: 0.8rem 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.pv-string-title {
+  font-family: 'Syne Mono', monospace;
+  font-size: 0.6rem;
+  color: var(--muted);
+  letter-spacing: 0.15em;
+  min-width: 30px;
+}
+
+.pv-bar-wrap {
+  flex: 1;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.pv-bar {
+  height: 100%;
+  background: var(--yellow);
+  border-radius: 2px;
+  transition: width 0.5s ease;
+  box-shadow: 0 0 8px var(--yellow);
+}
+
+.pv-string-vals {
+  font-family: 'Syne Mono', monospace;
+  font-size: 0.6rem;
+  color: var(--text);
+  text-align: right;
+  min-width: 80px;
+}
+
+/* ── Actions Table ── */
+.actions-wrap {
+  position: relative;
+  z-index: 1;
+  background: var(--surface);
+}
+
+.actions-header {
+  padding: 0.8rem 1.5rem;
+  font-family: 'Syne Mono', monospace;
+  font-size: 0.6rem;
+  color: var(--muted);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: 'Syne Mono', monospace;
+  font-size: 0.68rem;
+}
+
+th {
+  text-align: left;
+  padding: 0.5rem 1.5rem;
+  color: var(--muted);
+  font-size: 0.55rem;
+  letter-spacing: 0.15em;
+  border-bottom: 1px solid var(--border);
+}
+
+td {
+  padding: 0.5rem 1.5rem;
+  border-bottom: 1px solid rgba(28,40,48,0.5);
+  color: var(--text);
+}
+
+tr:hover td { background: rgba(0,212,255,0.02); }
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 2px;
+  font-size: 0.55rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.badge-block { background: rgba(255,61,90,0.15); color: var(--red); }
+.badge-allow { background: rgba(0,232,122,0.1);  color: var(--green); }
+.badge-test  { background: rgba(0,212,255,0.1);  color: var(--accent); }
+.badge-other { background: rgba(61,85,102,0.3);  color: var(--muted); }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="logo">
+    <span class="logo-title">AlphaESS · Monitor</span>
+    <span class="logo-sub">SMILE-T10-HV-INV // MODBUS TCP</span>
+  </div>
+  <div class="header-right">
+    <div class="live"><div class="live-dot"></div>LIVE</div>
+    <div id="clock">–</div>
+  </div>
+</header>
+
+<!-- Range Tabs -->
+<div class="tabs">
+  <button class="tab active" onclick="setRange(3,this)">3H</button>
+  <button class="tab" onclick="setRange(6,this)">6H</button>
+  <button class="tab" onclick="setRange(12,this)">12H</button>
+  <button class="tab" onclick="setRange(24,this)">24H</button>
+  <button class="tab" onclick="setRange(48,this)">48H</button>
+</div>
+
+<!-- KPIs -->
+<div class="kpi-grid">
+  <div class="kpi">
+    <span class="kpi-label">Batterie SOC</span>
+    <span class="kpi-value c-green" id="k-soc">–<span class="kpi-unit">%</span></span>
+    <span class="kpi-sub" id="k-soc-sub">–</span>
+  </div>
+  <div class="kpi">
+    <span class="kpi-label">Batterie Leistung</span>
+    <span class="kpi-value c-accent" id="k-bat-pwr">–<span class="kpi-unit">W</span></span>
+    <span class="kpi-sub" id="k-bat-pwr-sub">–</span>
+  </div>
+  <div class="kpi">
+    <span class="kpi-label">PV Produktion</span>
+    <span class="kpi-value c-yellow" id="k-pv">–<span class="kpi-unit">W</span></span>
+    <span class="kpi-sub" id="k-pv-sub">–</span>
+  </div>
+  <div class="kpi">
+    <span class="kpi-label">Netzleistung</span>
+    <span class="kpi-value c-purple" id="k-grid">–<span class="kpi-unit">W</span></span>
+    <span class="kpi-sub" id="k-grid-sub">–</span>
+  </div>
+  <div class="kpi">
+    <span class="kpi-label">Strompreis</span>
+    <span class="kpi-value c-orange" id="k-price">–<span class="kpi-unit">ct/kWh</span></span>
+    <span class="kpi-sub" id="k-price-sub">–</span>
+  </div>
+  <div class="kpi">
+    <span class="kpi-label">Einspeisung</span>
+    <span class="kpi-value" id="k-export">–<span class="kpi-unit">%</span></span>
+    <span class="kpi-sub" id="k-export-sub">–</span>
+  </div>
+</div>
+
+<!-- Battery Detail Strip -->
+<div class="bat-detail">
+  <div class="bat-cell">
+    <span class="bat-cell-label">Spannung</span>
+    <span class="bat-cell-value c-accent" id="b-volt">–</span>
+  </div>
+  <div class="bat-cell">
+    <span class="bat-cell-label">Strom</span>
+    <span class="bat-cell-value c-accent" id="b-curr">–</span>
+  </div>
+  <div class="bat-cell">
+    <span class="bat-cell-label">Temp min</span>
+    <span class="bat-cell-value" id="b-tmin">–</span>
+  </div>
+  <div class="bat-cell">
+    <span class="bat-cell-label">Temp max</span>
+    <span class="bat-cell-value" id="b-tmax">–</span>
+  </div>
+  <div class="bat-cell">
+    <span class="bat-cell-label">SOH</span>
+    <span class="bat-cell-value c-green" id="b-soh">–</span>
+  </div>
+  <div class="bat-cell">
+    <span class="bat-cell-label">Kapazität</span>
+    <span class="bat-cell-value" id="b-cap">–</span>
+  </div>
+</div>
+
+<!-- PV Strings -->
+<div class="pv-strings">
+  <div class="pv-string">
+    <span class="pv-string-title">PV1</span>
+    <div class="pv-bar-wrap"><div class="pv-bar" id="pv1-bar" style="width:0%"></div></div>
+    <span class="pv-string-vals" id="pv1-vals">–</span>
+  </div>
+  <div class="pv-string">
+    <span class="pv-string-title">PV2</span>
+    <div class="pv-bar-wrap"><div class="pv-bar" id="pv2-bar" style="width:0%"></div></div>
+    <span class="pv-string-vals" id="pv2-vals">–</span>
+  </div>
+  <div class="pv-string">
+    <span class="pv-string-title">PV3</span>
+    <div class="pv-bar-wrap"><div class="pv-bar" id="pv3-bar" style="width:0%"></div></div>
+    <span class="pv-string-vals" id="pv3-vals">–</span>
+  </div>
+</div>
+
+<!-- Charts -->
+<div class="charts">
+
+  <div class="chart-card wide">
+    <div class="chart-header">
+      <span class="chart-title"><span class="dot" style="background:#00e87a"></span>SOC &amp; Batterieleistung</span>
+    </div>
+    <div class="chart-wrap"><canvas id="c-battery"></canvas></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-header">
+      <span class="chart-title"><span class="dot" style="background:#ffe24a"></span>PV Produktion</span>
+    </div>
+    <div class="chart-wrap"><canvas id="c-pv"></canvas></div>
+  </div>
+
+  <div class="chart-card wide">
+    <div class="chart-header">
+      <span class="chart-title"><span class="dot" style="background:#b06cff"></span>Netzleistung</span>
+    </div>
+    <div class="chart-wrap"><canvas id="c-grid"></canvas></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-header">
+      <span class="chart-title"><span class="dot" style="background:#ff8c00"></span>Strompreise</span>
+    </div>
+    <div class="chart-wrap"><canvas id="c-prices"></canvas></div>
+  </div>
+
+  <div class="chart-card full">
+    <div class="chart-header">
+      <span class="chart-title">
+        <span class="dot" style="background:#00d4ff"></span>Wechselrichter Temperatur
+        &nbsp;&nbsp;
+        <span class="dot" style="background:#ff3d5a"></span>Batterie Temp Min/Max
+      </span>
+    </div>
+    <div class="chart-wrap"><canvas id="c-temp"></canvas></div>
+  </div>
+
+</div>
+
+<!-- Actions -->
+<div class="actions-wrap">
+  <div class="actions-header">⚡ Steuerungsaktionen</div>
+  <table>
+    <thead>
+      <tr>
+        <th>ZEITPUNKT</th>
+        <th>AKTION</th>
+        <th>GRUND</th>
+        <th>WERT</th>
+      </tr>
+    </thead>
+    <tbody id="actions-body">
+      <tr><td colspan="4" style="color:var(--muted)">Lade...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+// ── Chart defaults ────────────────────────────────────────────────────────────
+const BASE = {
+  responsive: true,
+  maintainAspectRatio: false,
+  animation: { duration: 400 },
+  interaction: { mode: 'index', intersect: false },
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      backgroundColor: '#0d1318',
+      borderColor: '#1c2830',
+      borderWidth: 1,
+      titleColor: '#3d5566',
+      bodyColor: '#c5d5e0',
+      titleFont: { family: 'Syne Mono', size: 10 },
+      bodyFont: { family: 'Syne Mono', size: 11 },
+    }
+  },
+  scales: {
+    x: {
+      type: 'time',
+      time: { tooltipFormat: 'dd.MM HH:mm' },
+      grid: { color: '#1c2830' },
+      ticks: { color: '#3d5566', font: { family: 'Syne Mono', size: 9 }, maxTicksLimit: 6 }
+    },
+    y: {
+      grid: { color: '#1c2830' },
+      ticks: { color: '#3d5566', font: { family: 'Syne Mono', size: 9 } }
+    }
+  }
+};
+
+function cfg(datasets, yRight = null) {
+  const c = JSON.parse(JSON.stringify(BASE));
+  if (yRight) {
+    c.scales.y1 = {
+      position: 'right',
+      grid: { drawOnChartArea: false, color: '#1c2830' },
+      ticks: { color: '#3d5566', font: { family: 'Syne Mono', size: 9 } }
+    };
+  }
+  return { type: 'line', data: { datasets }, options: c };
+}
+
+function ds(label, color, data, yAxisID = 'y', fill = false, dashed = false) {
+  return {
+    label, data,
+    borderColor: color,
+    backgroundColor: fill ? color.replace(')', ',0.1)').replace('rgb','rgba') : 'transparent',
+    borderWidth: 1.5,
+    borderDash: dashed ? [4, 3] : [],
+    pointRadius: 0,
+    tension: 0.3,
+    fill,
+    yAxisID,
+  };
+}
+
+const charts = {
+  battery: new Chart(document.getElementById('c-battery').getContext('2d'),
+    cfg([
+      ds('SOC %', '#00e87a', [], 'y', true),
+      ds('Leistung W', '#00d4ff', [], 'y1'),
+    ], true)),
+
+  pv: new Chart(document.getElementById('c-pv').getContext('2d'),
+    cfg([ds('PV W', '#ffe24a', [], 'y', true)])),
+
+  grid: new Chart(document.getElementById('c-grid').getContext('2d'),
+    cfg([ds('Netz W', '#b06cff', [], 'y')])),
+
+  prices: new Chart(document.getElementById('c-prices').getContext('2d'),
+    cfg([ds('ct/kWh', '#ff8c00', [], 'y', true)])),
+
+  temp: new Chart(document.getElementById('c-temp').getContext('2d'),
+    cfg([
+      ds('INV °C',      '#00d4ff', [], 'y'),
+      ds('Bat min °C',  '#ff3d5a', [], 'y', false, true),
+      ds('Bat max °C',  '#ff8c00', [], 'y', false, true),
+    ])),
+};
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let currentHours = 3;
+
+function setRange(h, btn) {
+  currentHours = h;
+  document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  loadAll();
+}
+
+// ── Clock ─────────────────────────────────────────────────────────────────────
+function tick() {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleString('de', {
+      day: '2-digit', month: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    });
+}
+tick();
+setInterval(tick, 1000);
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function fmt(v, unit, dec = 1) {
+  if (v == null) return '–';
+  return `${Number(v).toFixed(dec)}${unit}`;
+}
+
+// ── Load Inverter Data ────────────────────────────────────────────────────────
+async function loadInverter() {
+  const [hist, latest] = await Promise.all([
+    fetch(`/monitor/api/inverter?hours=${currentHours}`).then(r => r.json()),
+    fetch('/monitor/api/inverter/latest').then(r => r.json()),
+  ]);
+
+  if (!latest || !latest.ts) return;
+
+  // KPIs
+  const soc = latest.bat_soc;
+  document.getElementById('k-soc').innerHTML =
+    `${fmt(soc, '', 1)}<span class="kpi-unit">%</span>`;
+
+  const bpwr = latest.bat_power_w;
+  const batEl = document.getElementById('k-bat-pwr');
+  batEl.innerHTML = `${Math.abs(bpwr ?? 0).toFixed(0)}<span class="kpi-unit">W</span>`;
+  batEl.className = `kpi-value ${bpwr < 0 ? 'c-green' : 'c-orange'}`;
+  document.getElementById('k-bat-pwr-sub').textContent =
+    bpwr < 0 ? '↓ Laden' : bpwr > 0 ? '↑ Entladen' : '● Standby';
+
+  document.getElementById('k-pv').innerHTML =
+    `${fmt(latest.pv_power_w, '', 0)}<span class="kpi-unit">W</span>`;
+  document.getElementById('k-pv-sub').textContent =
+    `PV1: ${latest.pv1_power_w ?? 0}W · PV2: ${latest.pv2_power_w ?? 0}W · PV3: ${latest.pv3_power_w ?? 0}W`;
+
+  const gpwr = latest.grid_power_w;
+  const gridEl = document.getElementById('k-grid');
+  gridEl.innerHTML = `${Math.abs(gpwr ?? 0).toFixed(0)}<span class="kpi-unit">W</span>`;
+  gridEl.className = `kpi-value ${gpwr > 0 ? 'c-red' : 'c-purple'}`;
+  document.getElementById('k-grid-sub').textContent =
+    gpwr > 0 ? '↑ Netzbezug' : '↓ Einspeisung';
+
+  const exp = latest.grid_export_pct;
+  const expEl = document.getElementById('k-export');
+  expEl.innerHTML = `${exp ?? '–'}<span class="kpi-unit">%</span>`;
+  expEl.className = `kpi-value ${exp === 0 ? 'c-red' : 'c-green'}`;
+  document.getElementById('k-export-sub').textContent =
+    exp === 0 ? '🔴 Gesperrt' : '✅ Erlaubt';
+
+  // Battery detail strip
+  document.getElementById('b-volt').textContent = fmt(latest.bat_voltage_v, ' V');
+  document.getElementById('b-curr').textContent = fmt(latest.bat_current_a, ' A');
+  document.getElementById('b-tmin').textContent = fmt(latest.bat_temp_min_c, ' °C');
+  document.getElementById('b-tmax').textContent = fmt(latest.bat_temp_max_c, ' °C');
+  document.getElementById('b-soh').textContent  = fmt(latest.bat_soh, ' %');
+  document.getElementById('b-cap').textContent  = fmt(latest.bat_soc != null && latest.bat_soh != null
+    ? (latest.bat_soc / 100) * 10.24 : null, ' kWh');
+
+  // PV Strings
+  const maxPV = Math.max(latest.pv1_power_w || 0, latest.pv2_power_w || 0, latest.pv3_power_w || 0, 1);
+  [1, 2, 3].forEach(n => {
+    const p = latest[`pv${n}_power_w`] ?? 0;
+    const v = latest[`pv${n}_voltage_v`] ?? 0;
+    const i = latest[`pv${n}_current_a`] ?? 0;
+    document.getElementById(`pv${n}-bar`).style.width = `${(p / maxPV * 100).toFixed(1)}%`;
+    document.getElementById(`pv${n}-vals`).textContent = `${p}W · ${v.toFixed(1)}V · ${i.toFixed(1)}A`;
+  });
+
+  // Charts
+  if (!hist.length) return;
+
+  charts.battery.data.datasets[0].data = hist.map(r => ({ x: new Date(r.ts), y: r.bat_soc }));
+  charts.battery.data.datasets[1].data = hist.map(r => ({ x: new Date(r.ts), y: r.bat_power_w }));
+  charts.battery.update();
+
+  charts.pv.data.datasets[0].data = hist.map(r => ({ x: new Date(r.ts), y: r.pv_power_w }));
+  charts.pv.update();
+
+  charts.grid.data.datasets[0].data = hist.map(r => ({ x: new Date(r.ts), y: r.grid_power_w }));
+  charts.grid.update();
+
+  charts.temp.data.datasets[0].data = hist.map(r => ({ x: new Date(r.ts), y: r.inv_temp_c }));
+  charts.temp.data.datasets[1].data = hist.map(r => ({ x: new Date(r.ts), y: r.bat_temp_min_c }));
+  charts.temp.data.datasets[2].data = hist.map(r => ({ x: new Date(r.ts), y: r.bat_temp_max_c }));
+  charts.temp.update();
+}
+
+// ── Load Prices ───────────────────────────────────────────────────────────────
+async function loadPrices() {
+  const data = await fetch('/monitor/api/prices').then(r => r.json());
+  const now = new Date();
+
+  const cur = data.find(p => new Date(p.ts_start) <= now && new Date(p.ts_end) > now);
+  if (cur) {
+    const p = cur.price_ct;
+    const priceEl = document.getElementById('k-price');
+    priceEl.innerHTML = `${p.toFixed(2)}<span class="kpi-unit">ct/kWh</span>`;
+    priceEl.className = `kpi-value ${p < 0 ? 'c-red' : p < 5 ? 'c-green' : p > 15 ? 'c-red' : 'c-orange'}`;
+    document.getElementById('k-price-sub').textContent =
+      p < 0 ? '⚠️ Negativpreis!' : p < 5 ? '🟢 Sehr günstig' : p > 15 ? '🔴 Teuer' : '🟡 Normal';
+  }
+
+  charts.prices.data.datasets[0].data = data.map(p => ({ x: new Date(p.ts_start), y: p.price_ct }));
+
+  // Color bars by price
+  charts.prices.data.datasets[0].segment = {
+    borderColor: ctx => {
+      const y = ctx.p1.parsed.y;
+      return y < 0 ? '#ff3d5a' : y < 5 ? '#00e87a' : y > 15 ? '#ff3d5a' : '#ff8c00';
+    }
+  };
+  charts.prices.update();
+}
+
+// ── Load Actions ──────────────────────────────────────────────────────────────
+async function loadActions() {
+  const data = await fetch('/monitor/api/actions').then(r => r.json());
+  const tbody = document.getElementById('actions-body');
+
+  if (!data.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="color:var(--muted)">Keine Aktionen</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = data.map(a => {
+    const act = (a.action || '').toLowerCase();
+    let cls = 'badge-other';
+    if (act.includes('sperr') || act.includes('block') || a.value === 0) cls = 'badge-block';
+    else if (act.includes('frei') || act.includes('allow') || a.value === 100) cls = 'badge-allow';
+    else if (act.includes('test')) cls = 'badge-test';
+
+    const ts = new Date(a.ts).toLocaleString('de', {
+      day: '2-digit', month: '2-digit',
+      hour: '2-digit', minute: '2-digit'
+    });
+
+    return `<tr>
+      <td>${ts}</td>
+      <td><span class="badge ${cls}">${a.action}</span></td>
+      <td>${a.reason || '–'}</td>
+      <td>${a.value != null ? a.value : '–'}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+async function loadAll() {
+  await Promise.all([loadInverter(), loadPrices(), loadActions()]);
+}
+
+loadAll();
+setInterval(loadAll, 60_000);
+</script>
+</body>
+</html>
